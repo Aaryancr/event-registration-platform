@@ -1,0 +1,27 @@
+# Web Framework & Server
+fastapi>=0.110.0,<1.0.0
+uvicorn[standard]>=0.28.0,<1.0.0
+
+# Settings & Validation
+pydantic>=2.6.0,<3.0.0
+pydantic-settings>=2.2.0,<3.0.0
+
+# Database & Migrations
+sqlalchemy>=2.0.28,<3.0.0
+alembic>=1.13.1,<2.0.0
+psycopg2-binary>=2.9.9,<3.0.0
+asyncpg>=0.29.0,<1.0.0
+
+# Caching & Background Services
+redis>=5.0.3,<6.0.0
+
+# Security & Authentication (Foundation for Stage 1)
+# Note: Pinning bcrypt==4.0.1 for passlib 1.7.4 compatibility under Python 3.12
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1
+pyjwt[crypto]>=2.8.0,<3.0.0
+
+# Testing & HTTP Client
+httpx>=0.27.0,<1.0.0
+pytest>=8.1.0,<9.0.0
+pytest-asyncio>=0.23.5,<1.0.0
