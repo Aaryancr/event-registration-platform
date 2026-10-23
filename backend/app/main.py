@@ -2,8 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.modules.auth.routes import router as auth_router
+from app.modules.certificates.routes import router as certificates_router
 from app.modules.events.routes import router as events_router
+from app.modules.payments.routes import router as payments_router
 from app.modules.registrations.routes import router as registrations_router
+from app.modules.tickets.routes import router as tickets_router
+from app.modules.waitlist.routes import router as waitlist_router
 
 settings = get_settings()
 
@@ -42,6 +46,30 @@ app.include_router(
     registrations_router,
     prefix=settings.API_V1_PREFIX,
     tags=["Registrations"],
+)
+
+app.include_router(
+    payments_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["Payments & Holds"],
+)
+
+app.include_router(
+    waitlist_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["Waitlist"],
+)
+
+app.include_router(
+    tickets_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["Tickets"],
+)
+
+app.include_router(
+    certificates_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["Certificates"],
 )
 
 
