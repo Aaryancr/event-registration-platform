@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.modules.auth.routes import router as auth_router
+from app.modules.events.routes import router as events_router
+from app.modules.registrations.routes import router as registrations_router
 
 settings = get_settings()
 
@@ -28,6 +30,18 @@ app.include_router(
     auth_router,
     prefix=f"{settings.API_V1_PREFIX}/auth",
     tags=["Authentication"],
+)
+
+app.include_router(
+    events_router,
+    prefix=f"{settings.API_V1_PREFIX}/events",
+    tags=["Events"],
+)
+
+app.include_router(
+    registrations_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["Registrations"],
 )
 
 

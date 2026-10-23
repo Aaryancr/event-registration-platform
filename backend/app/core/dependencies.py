@@ -88,3 +88,7 @@ def require_role(required_role: UserRole) -> Callable[[User], User]:
 
 # Reusable dependency requiring organizer privileges
 require_organizer = require_role(UserRole.ORGANIZER)
+
+# Reusable dependency requiring attendee privileges
+require_attendee = require_role(UserRole.ATTENDEE)
+
