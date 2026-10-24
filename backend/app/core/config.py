@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "db"
     POSTGRES_PORT: int = 5432
 
+    # Database Connection Pool configuration
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
+
     # Redis configuration
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
