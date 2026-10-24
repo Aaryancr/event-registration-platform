@@ -16,40 +16,40 @@ EventFlow is a production-grade, concurrency-safe event registration and ticketi
 ## 1. System Architecture & Component Diagram
 
 ```mermaid
-graph TB
-    subgraph Client Layer
+flowchart TB
+    subgraph ClientLayer ["Client Layer"]
         Browser["React 18 + Vite SPA<br/>(Attendee Portal / Organizer Console)"]
         Scraper["Prometheus Scraper / External Systems"]
     end
 
-    subgraph Reverse Proxy & Gateway
+    subgraph Gateway ["Reverse Proxy & Gateway"]
         Nginx["Nginx Reverse Proxy<br/>(TLS Termination, Static SPA, Gzip)"]
     end
 
-    subgraph Application Tier
-        FastAPI["FastAPI Backend (4 Uvicorn Workers)<br/>- Structured JSON Logging (Redacted)<br/>- Liveness & Readiness Probes<br/>- Prometheus Exposition (:8000/metrics)"]
+    subgraph AppTier ["Application Tier"]
+        FastAPI["FastAPI Backend (4 Uvicorn Workers)<br/>Structured JSON Logging<br/>Liveness & Readiness Probes<br/>Prometheus Exposition :8000/metrics"]
         WS["WebSocket Room Manager<br/>(Committed State Seat Broadcasting)"]
         Workers["Async Background Workers<br/>(Jinja2 Certificate Rendering)"]
     end
 
-    subgraph State & Persistence Tier
-        PG[("PostgreSQL 16 (Authoritative)<br/>- Explicit Row Locking (FOR UPDATE)<br/>- Idempotency Keys & Audit Logs<br/>- Registrations & FIFO Waitlists<br/>- Cryptographic Ticket Records")]
-        Redis[("Redis 7 Cache<br/>- In-Memory State & Heartbeats<br/>- Inter-Worker Pub/Sub Bus")]
+    subgraph DataTier ["State & Persistence Tier"]
+        PG[("PostgreSQL 16 Authoritative<br/>Explicit Row Locking FOR UPDATE<br/>Idempotency Keys & Audit Logs<br/>Registrations & FIFO Waitlists<br/>Cryptographic Ticket Records")]
+        Redis[("Redis 7 Cache<br/>In-Memory State & Heartbeats<br/>Inter-Worker Pub/Sub Bus")]
     end
 
-    Browser -->|HTTPS :443 / REST| Nginx
-    Browser -->|WSS :443 / WebSockets| Nginx
-    Scraper -->|Bearer Token Auth| Nginx
+    Browser -->|"HTTPS :443 / REST"| Nginx
+    Browser -->|"WSS :443 / WebSockets"| Nginx
+    Scraper -->|"Bearer Token Auth"| Nginx
 
-    Nginx -->|Proxy HTTP /api/| FastAPI
-    Nginx -->|Upgrade WS /ws/| WS
-    Nginx -->|Serve /dist| Browser
+    Nginx -->|"Proxy HTTP /api/"| FastAPI
+    Nginx -->|"Upgrade WS /ws/"| WS
+    Nginx -->|"Serve /dist"| Browser
 
-    FastAPI -->|Connection Pool (size 20)| PG
-    FastAPI -->|Ping / Caching| Redis
-    FastAPI -->|Post-Commit Broadcast| WS
-    FastAPI -->|Schedule Async Job| Workers
-    Workers -->|Store Rendered Cert| PG
+    FastAPI -->|"Connection Pool (size 20)"| PG
+    FastAPI -->|"Ping / Caching"| Redis
+    FastAPI -->|"Post-Commit Broadcast"| WS
+    FastAPI -->|"Schedule Async Job"| Workers
+    Workers -->|"Store Rendered Cert"| PG
 ```
 
 ---

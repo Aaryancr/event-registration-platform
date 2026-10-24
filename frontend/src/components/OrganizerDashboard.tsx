@@ -8,6 +8,11 @@ import {
   Scan,
   Calendar,
   X,
+  Users,
+  MapPin,
+  Clock,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 import { Event, EventCreatePayload, CheckInResponse } from '../types';
 import { api } from '../api/client';
@@ -19,6 +24,8 @@ interface OrganizerDashboardProps {
 export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify }) => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [activeConsoleTab, setActiveConsoleTab] = useState<'events' | 'checkin'>('events');
+  const [eventFilter, setEventFilter] = useState<'all' | 'published' | 'draft'>('all');
 
   // Create Event Modal
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
@@ -45,7 +52,7 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
       const myEvents = await api.events.listMine();
       setEvents(myEvents);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to load organizer events';
+      const msg = err instanceof Error ? err.message : 'Failed to retrieve organizer events';
       onNotify('error', msg);
     } finally {
       setLoading(false);
@@ -58,7 +65,7 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
 
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !location || !startsAt || !endsAt || capacity <= 0) {
+    if (!title.trim() || !location.trim() || !startsAt || !endsAt || capacity <= 0) {
       onNotify('error', 'All fields are required and capacity must be positive');
       return;
     }
@@ -71,9 +78,9 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
     setCreating(true);
     try {
       const payload: EventCreatePayload = {
-        title,
-        description: description || undefined,
-        location,
+        title: title.trim(),
+        description: description.trim() || undefined,
+        location: location.trim(),
         starts_at: new Date(startsAt).toISOString(),
         ends_at: new Date(endsAt).toISOString(),
         capacity: Number(capacity),
@@ -99,9 +106,13 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
   };
 
   const handlePublishEvent = async (eventId: number) => {
+    if (!window.confirm('Are you sure you want to publish this event? It will immediately become visible to attendees and open for registration.')) {
+      return;
+    }
+
     try {
       await api.events.update(eventId, { status: 'published' });
-      onNotify('success', 'Event published and visible to all attendees!');
+      onNotify('success', 'Event published! It is now live in the public discovery catalog.');
       loadMyEvents();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to publish event';
@@ -124,16 +135,17 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
 
   const handleCheckInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!scanCode.trim()) return;
+    const cleanCode = scanCode.trim();
+    if (!cleanCode) return;
 
     setCheckingIn(true);
     setCheckInResult(null);
     setCheckInError(null);
 
     try {
-      const result = await api.tickets.checkIn(scanCode.trim());
+      const result = await api.tickets.checkIn(cleanCode);
       setCheckInResult(result);
-      onNotify('success', `Attendee ${result.attendee_name} successfully checked in!`);
+      onNotify('success', `Attendee ${result.attendee_name} successfully admitted!`);
       setScanCode('');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Check-in rejected';
@@ -144,266 +156,440 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
     }
   };
 
+  // Aggregated operational metrics
+  const totalCapacity = events.reduce((acc, ev) => acc + ev.capacity, 0);
+  const publishedCount = events.filter((e) => e.status === 'published').length;
+  const draftCount = events.filter((e) => e.status === 'draft').length;
+
   return (
-    <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', padding: '24px 0' }}>
-      {/* Header & Create CTA */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
+    <div style={{ maxWidth: '1140px', margin: '0 auto', width: '100%', padding: '16px 0 32px' }}>
+      {/* Console Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '1.85rem', fontWeight: 800 }}>Organizer Operations Console</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
-            Manage event publishing, live entrance check-ins, and asynchronous certificate delivery.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <span className="badge badge-info" style={{ fontSize: '0.72rem' }}>Organizer Console</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Role-Enforced Operations</span>
+          </div>
+          <h2 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#f8fafc' }}>
+            Event Operations & Control
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.94rem' }}>
+            Publish events, manage capacity thresholds, validate live admissions, and dispatch credentials.
           </p>
         </div>
 
         <button
           onClick={() => setShowCreateModal(true)}
-          className="btn-primary"
-          style={{ padding: '10px 20px', fontSize: '0.9rem' }}
+          className="btn btn-primary"
+          style={{ padding: '11px 22px' }}
         >
           <Plus size={18} />
           <span>Create New Event</span>
         </button>
       </div>
 
-      {/* Grid: Events Management & Live Check-in Scanner */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '28px', marginBottom: '40px' }}>
-        {/* CHECK-IN SCANNER WIDGET */}
-        <div
-          className="glass-panel"
-          style={{
-            padding: '28px',
-            background: 'linear-gradient(135deg, rgba(13, 18, 31, 0.95), rgba(24, 33, 54, 0.85))',
-            border: '1px solid var(--border-highlight)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-            <Scan size={22} color="#06b6d4" />
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Live Entrance Check-in</h3>
+      {/* Operations Metric Cards */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '18px',
+          marginBottom: '32px',
+        }}
+      >
+        <div className="card" style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Managed Events
+            </span>
+            <div style={{ padding: '8px', borderRadius: 'var(--radius-md)', background: 'rgba(99, 102, 241, 0.12)', color: 'var(--primary)' }}>
+              <Layers size={18} />
+            </div>
           </div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
-            Verify attendee ownership, enforce single-use check-ins, and prevent counterfeit tickets in real time.
-          </p>
-
-          <form onSubmit={handleCheckInSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <input
-              type="text"
-              placeholder="Enter or scan 32-character ticket code"
-              value={scanCode}
-              onChange={(e) => setScanCode(e.target.value)}
-              className="input-field"
-              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
-              required
-            />
-            <button
-              type="submit"
-              disabled={checkingIn}
-              className="btn-primary"
-              style={{ justifyContent: 'center', padding: '12px' }}
-            >
-              {checkingIn ? 'Verifying Ticket...' : 'Validate & Check In'}
-            </button>
-          </form>
-
-          {/* Instant Success Feedback */}
-          {checkInResult && (
-            <div
-              style={{
-                marginTop: '16px',
-                padding: '16px',
-                borderRadius: '8px',
-                background: 'rgba(16, 185, 129, 0.15)',
-                border: '1px solid rgba(16, 185, 129, 0.4)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '4px' }}>
-                <CheckCircle2 size={18} />
-                <span>Valid Admission Confirmed!</span>
-              </div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>
-                <div><strong>Attendee:</strong> {checkInResult.attendee_name}</div>
-                <div><strong>Event:</strong> {checkInResult.event_title}</div>
-                <div><strong>Time:</strong> {new Date(checkInResult.checked_in_at).toLocaleTimeString()}</div>
-              </div>
-            </div>
-          )}
-
-          {/* Instant Error Feedback */}
-          {checkInError && (
-            <div
-              style={{
-                marginTop: '16px',
-                padding: '16px',
-                borderRadius: '8px',
-                background: 'rgba(239, 68, 68, 0.15)',
-                border: '1px solid rgba(239, 68, 68, 0.4)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontWeight: 700, marginBottom: '4px' }}>
-                <AlertCircle size={18} />
-                <span>Check-in Rejected</span>
-              </div>
-              <div style={{ fontSize: '0.85rem', color: '#fca5a5' }}>{checkInError}</div>
-            </div>
-          )}
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: '#f8fafc', lineHeight: 1 }}>{events.length}</div>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '8px', display: 'block' }}>
+            Total event listings in your portfolio
+          </span>
         </div>
 
-        {/* ORGANIZER STATS OVERVIEW */}
-        <div className="glass-panel" style={{ padding: '28px' }}>
-          <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px' }}>Operations Summary</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '10px' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Total Events Managed</div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#38bdf8' }}>{events.length}</div>
-            </div>
-
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '10px' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Total Platform Capacity</div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#10b981' }}>
-                {events.reduce((acc, ev) => acc + ev.capacity, 0)}
-              </div>
-            </div>
-
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '10px' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Published Events</div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#818cf8' }}>
-                {events.filter((e) => e.status === 'published').length}
-              </div>
-            </div>
-
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '16px', borderRadius: '10px' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Draft Events</div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#f59e0b' }}>
-                {events.filter((e) => e.status === 'draft').length}
-              </div>
+        <div className="card" style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Platform Capacity
+            </span>
+            <div style={{ padding: '8px', borderRadius: 'var(--radius-md)', background: 'rgba(16, 185, 129, 0.12)', color: '#34d399' }}>
+              <Users size={18} />
             </div>
           </div>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: '#34d399', lineHeight: 1 }}>{totalCapacity}</div>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '8px', display: 'block' }}>
+            Max seat allocation across all events
+          </span>
+        </div>
+
+        <div className="card" style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Published & Active
+            </span>
+            <div style={{ padding: '8px', borderRadius: 'var(--radius-md)', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8' }}>
+              <Calendar size={18} />
+            </div>
+          </div>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: '#38bdf8', lineHeight: 1 }}>{publishedCount}</div>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '8px', display: 'block' }}>
+            Open for attendee discovery & booking
+          </span>
+        </div>
+
+        <div className="card" style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Draft Pipeline
+            </span>
+            <div style={{ padding: '8px', borderRadius: 'var(--radius-md)', background: 'rgba(245, 158, 11, 0.12)', color: '#fbbf24' }}>
+              <Clock size={18} />
+            </div>
+          </div>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>{draftCount}</div>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '8px', display: 'block' }}>
+            Unpublished drafts in preparation
+          </span>
         </div>
       </div>
 
-      {/* EVENTS LIST */}
-      <div>
-        <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: '16px' }}>Your Events</h3>
+      {/* Sub-nav Console Tabs */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '24px',
+          borderBottom: '1px solid var(--border-subtle)',
+          paddingBottom: '12px',
+        }}
+      >
+        <button
+          className={`nav-tab-btn ${activeConsoleTab === 'events' ? 'active' : ''}`}
+          onClick={() => setActiveConsoleTab('events')}
+          style={{ padding: '10px 18px', fontSize: '0.92rem' }}
+        >
+          <Calendar size={17} />
+          <span>Events Portfolio ({events.length})</span>
+        </button>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-            Loading your events...
-          </div>
-        ) : events.length === 0 ? (
-          <div className="glass-panel" style={{ padding: '48px', textAlign: 'center' }}>
-            <Calendar size={40} color="var(--text-muted)" style={{ margin: '0 auto 16px' }} />
-            <h4 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>No Events Created Yet</h4>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
-              Create your first event to start accepting registrations and ticket sales.
-            </p>
-            <button onClick={() => setShowCreateModal(true)} className="btn-primary">
-              <Plus size={16} />
-              <span>Create Event</span>
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {events.map((ev) => (
+        <button
+          className={`nav-tab-btn ${activeConsoleTab === 'checkin' ? 'active' : ''}`}
+          onClick={() => setActiveConsoleTab('checkin')}
+          style={{ padding: '10px 18px', fontSize: '0.92rem' }}
+        >
+          <Scan size={17} />
+          <span>Live Entrance Check-in Station</span>
+        </button>
+      </div>
+
+      {/* CONSOLE TAB 1: EVENTS PORTFOLIO */}
+      {activeConsoleTab === 'events' && (
+        <div>
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {[1, 2].map((i) => (
+                <div key={i} className="card skeleton" style={{ height: '140px' }} />
+              ))}
+            </div>
+          ) : events.length === 0 ? (
+            <div className="card" style={{ padding: '60px 24px', textAlign: 'center' }}>
               <div
-                key={ev.id}
-                className="glass-panel"
                 style={{
-                  padding: '24px',
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '50%',
+                  background: 'rgba(99, 102, 241, 0.12)',
                   display: 'flex',
-                  justifyContent: 'space-between',
                   alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '16px',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px',
+                  color: 'var(--primary)',
                 }}
               >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                    <span
-                      style={{
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        padding: '3px 8px',
-                        borderRadius: '12px',
-                        background: ev.status === 'published' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                        color: ev.status === 'published' ? '#10b981' : '#f59e0b',
-                      }}
-                    >
-                      {ev.status}
-                    </span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      Capacity: {ev.capacity} seats
-                    </span>
-                  </div>
+                <Calendar size={28} />
+              </div>
+              <h3 style={{ fontSize: '1.3rem', marginBottom: '8px' }}>No Events in Your Catalog</h3>
+              <p style={{ color: 'var(--text-secondary)', maxWidth: '420px', margin: '0 auto 20px' }}>
+                Create your first event listing to establish registration limits and start ticketing.
+              </p>
+              <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
+                <Plus size={16} />
+                <span>Create New Event</span>
+              </button>
+            </div>
+          ) : (
+            <div>
+              {/* Filter Pills */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setEventFilter('all')}
+                  className={`btn btn-sm ${eventFilter === 'all' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ borderRadius: 'var(--radius-pill)' }}
+                >
+                  All Events ({events.length})
+                </button>
+                <button
+                  onClick={() => setEventFilter('published')}
+                  className={`btn btn-sm ${eventFilter === 'published' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ borderRadius: 'var(--radius-pill)' }}
+                >
+                  Published ({publishedCount})
+                </button>
+                <button
+                  onClick={() => setEventFilter('draft')}
+                  className={`btn btn-sm ${eventFilter === 'draft' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ borderRadius: 'var(--radius-pill)' }}
+                >
+                  Drafts ({draftCount})
+                </button>
+              </div>
 
-                  <h4 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '6px' }}>{ev.title}</h4>
-                  <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    <span>{new Date(ev.starts_at).toLocaleDateString()}</span>
-                    <span>{ev.location}</span>
-                  </div>
+              {events.filter((e) => eventFilter === 'all' || e.status === eventFilter).length === 0 ? (
+                <div className="card" style={{ padding: '40px 24px', textAlign: 'center' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    No events currently in <strong>{eventFilter}</strong> status.
+                  </p>
+                  <button
+                    onClick={() => setEventFilter('all')}
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: '12px' }}
+                  >
+                    Reset Filter
+                  </button>
                 </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {events
+                    .filter((e) => eventFilter === 'all' || e.status === eventFilter)
+                    .map((ev) => (
+                      <div
+                        key={ev.id}
+                        className="card"
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '16px',
+                          padding: '22px 24px',
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: '280px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <span className={`badge ${ev.status === 'published' ? 'badge-success' : 'badge-warning'}`}>
+                              {ev.status}
+                            </span>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                              Event #{ev.id} • Created {new Date(ev.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
 
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {ev.status === 'draft' && (
-                    <button
-                      onClick={() => handlePublishEvent(ev.id)}
-                      className="btn-primary"
-                      style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                    >
-                      <Send size={15} />
-                      <span>Publish Event</span>
-                    </button>
-                  )}
+                          <h4 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '6px', color: '#f8fafc' }}>
+                            {ev.title}
+                          </h4>
 
-                  {ev.status === 'published' && (
-                    <button
-                      onClick={() => handleIssueCertificates(ev.id)}
-                      disabled={issuingEventId === ev.id}
-                      style={{
-                        background: 'rgba(99, 102, 241, 0.15)',
-                        border: '1px solid rgba(99, 102, 241, 0.3)',
-                        color: '#818cf8',
-                        borderRadius: '8px',
-                        padding: '8px 16px',
-                        cursor: 'pointer',
-                        fontSize: '0.85rem',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}
-                    >
-                      <Award size={15} />
-                      <span>{issuingEventId === ev.id ? 'Dispatching...' : 'Issue Certificates'}</span>
-                    </button>
-                  )}
+                          <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <Calendar size={14} color="#38bdf8" />
+                              {new Date(ev.starts_at).toLocaleDateString()} at {new Date(ev.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <MapPin size={14} color="#818cf8" />
+                              {ev.location}
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <Users size={14} color="#34d399" />
+                              Capacity: {ev.capacity} seats
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Actions for this event */}
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {ev.status === 'draft' && (
+                            <button
+                              onClick={() => handlePublishEvent(ev.id)}
+                              className="btn btn-primary btn-sm"
+                            >
+                              <Send size={15} />
+                              <span>Publish Event</span>
+                            </button>
+                          )}
+
+                          {ev.status === 'published' && (
+                            <button
+                              onClick={() => handleIssueCertificates(ev.id)}
+                              disabled={issuingEventId === ev.id}
+                              className="btn btn-secondary btn-sm"
+                              style={{ border: '1px solid var(--border-highlight)' }}
+                            >
+                              <Award size={15} color="var(--primary)" />
+                              <span>{issuingEventId === ev.id ? 'Dispatching...' : 'Issue Certificates'}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CONSOLE TAB 2: LIVE ENTRANCE SCANNER */}
+      {activeConsoleTab === 'checkin' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+          {/* Scanner Card */}
+          <div
+            className="card"
+            style={{
+              background: 'linear-gradient(135deg, rgba(14, 21, 38, 0.95), rgba(21, 31, 54, 0.9))',
+              border: '1px solid var(--border-highlight)',
+              padding: '28px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <div style={{ padding: '8px', borderRadius: 'var(--radius-md)', background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4' }}>
+                <Scan size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc' }}>
+                  Live Entrance Scanner Station
+                </h3>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Single-Use Token Validation Engine
+                </span>
+              </div>
+            </div>
+
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: '14px 0 20px', lineHeight: 1.55 }}>
+              Scan barcodes with hardware scanners or manually input the attendee's 32-character ticket code to verify cryptographic authenticity and record check-in.
+            </p>
+
+            <form onSubmit={handleCheckInSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label className="input-label">Ticket Code or Scanner Input</label>
+                <input
+                  type="text"
+                  placeholder="Paste or scan 32-char ticket code..."
+                  value={scanCode}
+                  onChange={(e) => setScanCode(e.target.value)}
+                  className="input-field"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={checkingIn}
+                className="btn btn-primary"
+                style={{ width: '100%', padding: '13px' }}
+              >
+                {checkingIn ? 'Verifying Admission...' : 'Validate & Admit Attendee'}
+              </button>
+            </form>
+
+            {/* Instant Admission Confirmation */}
+            {checkInResult && (
+              <div
+                style={{
+                  marginTop: '20px',
+                  padding: '18px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--status-success-bg)',
+                  border: '1.5px solid var(--status-success-border)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--status-success)', fontWeight: 800, marginBottom: '8px' }}>
+                  <CheckCircle2 size={20} />
+                  <span>Valid Admission Confirmed!</span>
+                </div>
+                <div style={{ fontSize: '0.88rem', color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div><strong>Attendee:</strong> {checkInResult.attendee_name}</div>
+                  <div><strong>Event:</strong> {checkInResult.event_title}</div>
+                  <div><strong>Admitted At:</strong> {new Date(checkInResult.checked_in_at).toLocaleTimeString()}</div>
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* Instant Rejection Banner */}
+            {checkInError && (
+              <div
+                style={{
+                  marginTop: '20px',
+                  padding: '18px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--status-danger-bg)',
+                  border: '1.5px solid var(--status-danger-border)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--status-danger)', fontWeight: 800, marginBottom: '6px' }}>
+                  <AlertCircle size={20} />
+                  <span>Admission Rejected</span>
+                </div>
+                <div style={{ fontSize: '0.88rem', color: '#fca5a5' }}>
+                  {checkInError}
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* Check-in Security Notes */}
+          <div className="card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                <Sparkles size={18} color="var(--primary)" />
+                <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>
+                  Entrance Enforcement Standards
+                </h4>
+              </div>
+
+              <ul style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', lineHeight: 1.7, paddingLeft: '18px' }}>
+                <li>
+                  <strong>Single-Use Enforced:</strong> Each ticket can only be checked in once. Duplicate scans are rejected with <code>409 Conflict</code>.
+                </li>
+                <li>
+                  <strong>Counterfeit Protection:</strong> 32-character high-entropy tokens backed by cryptographic SHA-256 signatures prevent forged credentials.
+                </li>
+                <li>
+                  <strong>Sub-second Latency:</strong> Immediate database lock validation ensures entrance lines keep moving with minimal delay.
+                </li>
+              </ul>
+            </div>
+
+            <div
+              style={{
+                marginTop: '20px',
+                padding: '14px',
+                borderRadius: 'var(--radius-md)',
+                background: 'rgba(255, 255, 255, 0.02)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+              }}
+            >
+              Tip: Keep this screen open on tablets or entrance laptops for continuous barcode scanning.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CREATE EVENT MODAL */}
       {showCreateModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1100,
-            padding: '16px',
-          }}
-          onClick={() => setShowCreateModal(false)}
-        >
+        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
           <div
-            className="glass-panel"
+            className="modal-content"
             style={{
               width: '100%',
-              maxWidth: '560px',
+              maxWidth: '600px',
               padding: '32px',
               position: 'relative',
               maxHeight: '90vh',
@@ -413,32 +599,36 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
           >
             <button
               onClick={() => setShowCreateModal(false)}
+              aria-label="Close modal"
               style={{
                 position: 'absolute',
                 top: '20px',
                 right: '20px',
                 background: 'transparent',
                 border: 'none',
-                color: 'var(--text-secondary)',
+                color: 'var(--text-muted)',
                 cursor: 'pointer',
               }}
             >
               <X size={20} />
             </button>
 
-            <h3 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '6px' }}>Create New Event</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '20px' }}>
-              Events are initially created in <strong>Draft</strong> status and can be published when ready.
+            <span className="badge badge-primary" style={{ marginBottom: '10px' }}>
+              Organizer Creation Wizard
+            </span>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '6px', color: '#f8fafc' }}>
+              Create New Event
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '22px' }}>
+              Events are initially saved as <strong>Draft</strong> and can be previewed or modified before publishing.
             </p>
 
             <form onSubmit={handleCreateEvent} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>
-                  Event Title
-                </label>
+                <label className="input-label">Event Title *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Distributed Systems Summit 2026"
+                  placeholder="e.g. Distributed Systems & Concurrency Summit 2026"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="input-field"
@@ -447,11 +637,9 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>
-                  Description
-                </label>
+                <label className="input-label">Event Description</label>
                 <textarea
-                  placeholder="Provide an overview of the agenda, speakers, and topics..."
+                  placeholder="Outline topics, agenda, keynote speakers, and attendee prerequisites..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="input-field"
@@ -461,12 +649,10 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>
-                  Location / Venue
-                </label>
+                <label className="input-label">Venue Location *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Moscone Center, San Francisco or Online Stream"
+                  placeholder="e.g. Moscone Center, San Francisco, CA or Online Livestream"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className="input-field"
@@ -474,11 +660,9 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>
-                    Start Date & Time
-                  </label>
+                  <label className="input-label">Start Date & Time *</label>
                   <input
                     type="datetime-local"
                     value={startsAt}
@@ -489,9 +673,7 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>
-                    End Date & Time
-                  </label>
+                  <label className="input-label">End Date & Time *</label>
                   <input
                     type="datetime-local"
                     value={endsAt}
@@ -503,28 +685,40 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({ onNotify
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '6px' }}>
-                  Total Capacity (Seats)
-                </label>
+                <label className="input-label">Total Seat Capacity *</label>
                 <input
                   type="number"
                   min="1"
-                  max="10000"
+                  max="50000"
                   value={capacity}
                   onChange={(e) => setCapacity(Number(e.target.value))}
                   className="input-field"
                   required
                 />
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Authoritative limit strictly enforced via PostgreSQL row-level locks
+                </span>
               </div>
 
-              <button
-                type="submit"
-                disabled={creating}
-                className="btn-primary"
-                style={{ width: '100%', justifyContent: 'center', padding: '12px', marginTop: '8px' }}
-              >
-                {creating ? 'Creating Event...' : 'Create Draft Event'}
-              </button>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="btn btn-primary"
+                  style={{ flex: 1, padding: '13px' }}
+                >
+                  {creating ? 'Saving Event...' : 'Create Draft Event'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="btn btn-outline"
+                  style={{ padding: '13px 20px' }}
+                >
+                  Cancel
+                </button>
+              </div>
             </form>
           </div>
         </div>

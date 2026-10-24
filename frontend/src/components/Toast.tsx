@@ -23,52 +23,69 @@ export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismis
         right: '24px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px',
+        gap: '10px',
         zIndex: 9999,
-        maxWidth: '400px',
+        maxWidth: '420px',
+        pointerEvents: 'none',
       }}
     >
       {toasts.map((toast) => {
         const isSuccess = toast.type === 'success';
         const isError = toast.type === 'error';
 
-        const bg = isSuccess
-          ? 'rgba(16, 185, 129, 0.95)'
+        const borderColor = isSuccess
+          ? 'var(--status-success-border)'
           : isError
-          ? 'rgba(239, 68, 68, 0.95)'
-          : 'rgba(99, 102, 241, 0.95)';
+          ? 'var(--status-danger-border)'
+          : 'var(--status-info-border)';
+
+        const iconColor = isSuccess
+          ? 'var(--status-success)'
+          : isError
+          ? 'var(--status-danger)'
+          : 'var(--status-info)';
 
         return (
           <div
             key={toast.id}
             style={{
-              background: bg,
-              color: '#ffffff',
+              background: 'rgba(14, 21, 38, 0.94)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              border: `1.5px solid ${borderColor}`,
+              color: '#f8fafc',
               padding: '12px 16px',
-              borderRadius: '10px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: 'var(--shadow-lg), 0 0 16px rgba(0, 0, 0, 0.5)',
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              animation: 'slideUp 0.25s ease-out',
+              pointerEvents: 'auto',
+              animation: 'scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
           >
-            {isSuccess && <CheckCircle2 size={18} />}
-            {isError && <AlertCircle size={18} />}
-            {!isSuccess && !isError && <Info size={18} />}
+            <div style={{ color: iconColor, flexShrink: 0, display: 'flex' }}>
+              {isSuccess && <CheckCircle2 size={19} />}
+              {isError && <AlertCircle size={19} />}
+              {!isSuccess && !isError && <Info size={19} />}
+            </div>
 
-            <span style={{ fontSize: '0.9rem', fontWeight: 500, flex: 1 }}>{toast.message}</span>
+            <span style={{ fontSize: '0.88rem', fontWeight: 500, flex: 1, lineHeight: 1.45 }}>
+              {toast.message}
+            </span>
 
             <button
               onClick={() => onDismiss(toast.id)}
+              aria-label="Dismiss notification"
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: '#ffffff',
+                color: 'var(--text-muted)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 padding: '4px',
+                borderRadius: 'var(--radius-sm)',
               }}
             >
               <X size={16} />

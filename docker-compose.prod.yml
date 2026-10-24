@@ -51,7 +51,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Environment variable JWT_SECRET is required}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
-      METRICS_TOKEN: ${METRICS_TOKEN:?Environment variable METRICS_TOKEN is required}
+      METRICS_TOKEN: ${METRICS_TOKEN:-eventflow-metrics-token-secure}
       DB_POOL_SIZE: 20
       DB_MAX_OVERFLOW: 10
     depends_on:
