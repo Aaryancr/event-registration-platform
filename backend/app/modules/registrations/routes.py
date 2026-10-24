@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_attendee
 from app.modules.events.models import Event, EventStatus
+from app.core.metrics import metrics
+from app.core.websockets import broadcast_event_seats
 from app.modules.idempotency.service import (
     check_and_start_idempotency,
     fail_idempotency,
@@ -82,6 +84,7 @@ def register_for_event(
 
     if existing_reg and existing_reg.status == RegistrationStatus.REGISTERED.value:
         db.rollback()
+        metrics.record_registration("duplicate")
         fail_idempotency(db, idemp_rec, 409, "User is already registered for this event")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -114,6 +117,8 @@ def register_for_event(
     # 5. Verify remaining capacity
     if active_count + active_holds >= event.capacity:
         db.rollback()
+        metrics.record_registration("capacity_full")
+        metrics.record_capacity_conflict(event_id)
         fail_idempotency(db, idemp_rec, 409, "Event has reached maximum capacity")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -145,8 +150,11 @@ def register_for_event(
     try:
         db.commit()
         db.refresh(registration)
+        metrics.record_registration("success")
+        broadcast_event_seats(event_id, db)
     except IntegrityError:
         db.rollback()
+        metrics.record_registration("duplicate")
         fail_idempotency(db, idemp_rec, 409, "User is already registered for this event")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -154,6 +162,7 @@ def register_for_event(
         )
     except Exception:
         db.rollback()
+        metrics.record_registration("error")
         fail_idempotency(db, idemp_rec, 500, "Registration failed")
         raise
 
@@ -279,6 +288,7 @@ def cancel_registration(
             )
 
     db.commit()
+    broadcast_event_seats(event.id, db)
     return {
         "message": "Registration successfully cancelled",
         "promoted": promoted_user_id is not None,

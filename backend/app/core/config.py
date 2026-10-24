@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # Metrics & Observability token
+    METRICS_TOKEN: str = "eventflow-metrics-token-secure"
+
     # CORS configuration
     CORS_ORIGINS: List[str] = [
         "http://localhost:5173",

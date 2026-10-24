@@ -14,7 +14,10 @@ from app.modules.tickets.service import (
 )
 from app.modules.users.models import User
 
+from app.core.metrics import metrics
+
 router = APIRouter(tags=["Tickets"])
+
 
 
 @router.get(
@@ -93,6 +96,7 @@ def check_in_ticket(
     )
 
     if not ticket:
+        metrics.record_checkin("invalid")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ticket not found",
@@ -100,6 +104,7 @@ def check_in_ticket(
 
     event = db.query(Event).filter(Event.id == ticket.event_id).first()
     if not event:
+        metrics.record_checkin("invalid")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Associated event not found",
@@ -107,6 +112,7 @@ def check_in_ticket(
 
     # Verification: Organizer must own the event they are operating check-in for
     if event.organizer_id != current_user.id:
+        metrics.record_checkin("unauthorized")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to check in tickets for this event",
@@ -114,6 +120,7 @@ def check_in_ticket(
 
     # State transition checks
     if ticket.status == TicketStatus.USED.value:
+        metrics.record_checkin("already_used")
         checked_time = ticket.checked_in_at.isoformat() if ticket.checked_in_at else "previously"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -121,6 +128,7 @@ def check_in_ticket(
         )
 
     if ticket.status == TicketStatus.CANCELLED.value:
+        metrics.record_checkin("cancelled")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot check in a cancelled ticket",
@@ -134,6 +142,7 @@ def check_in_ticket(
 
     db.commit()
     db.refresh(ticket)
+    metrics.record_checkin("success")
 
     attendee = db.query(User).filter(User.id == ticket.user_id).first()
     attendee_name = attendee.display_name if attendee else "Attendee"

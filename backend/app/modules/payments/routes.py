@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_attendee
 from app.modules.events.models import Event, EventStatus
+from app.core.metrics import metrics
+from app.core.websockets import broadcast_event_seats
 from app.modules.idempotency.service import (
     check_and_start_idempotency,
     fail_idempotency,
@@ -120,6 +122,8 @@ def create_seat_hold(
 
     if active_reg_count + active_hold_count >= event.capacity:
         db.rollback()
+        metrics.record_seat_hold("capacity_full")
+        metrics.record_capacity_conflict(event_id)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Event has reached maximum capacity. No seats available for hold.",
@@ -135,6 +139,8 @@ def create_seat_hold(
     db.add(hold)
     db.commit()
     db.refresh(hold)
+    metrics.record_seat_hold("created")
+    broadcast_event_seats(event.id, db)
     return hold
 
 
@@ -218,6 +224,8 @@ def pay_seat_hold(
         )
         db.add(failed_pay)
         db.commit()
+        metrics.record_seat_hold("failed")
+        broadcast_event_seats(hold.event_id, db)
         fail_idempotency(db, idemp_record, 402, "Payment declined by payment processor")
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -272,6 +280,8 @@ def pay_seat_hold(
     db.refresh(payment)
     db.refresh(reg)
     db.refresh(ticket)
+    metrics.record_seat_hold("paid")
+    broadcast_event_seats(hold.event_id, db)
 
     response_data = PaymentResponse(
         payment_id=payment.id,
@@ -326,6 +336,8 @@ def cancel_seat_hold(
 
     hold.status = SeatHoldStatus.CANCELLED.value
     db.commit()
+    metrics.record_seat_hold("cancelled")
+    broadcast_event_seats(hold.event_id, db)
     return {"message": "Seat hold cancelled and capacity released"}
 
 
@@ -359,6 +371,16 @@ def cleanup_expired_holds(
 ):
     """Maintenance endpoint to sweep and update active holds that have surpassed their TTL."""
     now = datetime.now(timezone.utc)
+    affected_event_ids = [
+        row[0]
+        for row in db.query(SeatHold.event_id)
+        .filter(
+            SeatHold.status == SeatHoldStatus.ACTIVE.value,
+            SeatHold.expires_at <= now,
+        )
+        .distinct()
+        .all()
+    ]
     count = (
         db.query(SeatHold)
         .filter(
@@ -368,4 +390,7 @@ def cleanup_expired_holds(
         .update({SeatHold.status: SeatHoldStatus.EXPIRED.value}, synchronize_session=False)
     )
     db.commit()
+    metrics.record_seat_hold("expired")
+    for eid in affected_event_ids:
+        broadcast_event_seats(eid, db)
     return {"message": f"Successfully marked {count} expired seat holds", "released_count": count}

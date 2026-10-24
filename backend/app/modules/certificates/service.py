@@ -5,6 +5,7 @@ from jinja2 import Template
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.core.metrics import metrics
 from app.modules.certificates.models import Certificate, CertificateStatus
 from app.modules.events.models import Event
 from app.modules.users.models import User
@@ -110,9 +111,11 @@ def generate_certificate_background_task(
         cert.issued_at = now
         cert.error_message = None
         db.commit()
+        metrics.record_background_task("certificate_render", "success")
 
     except Exception as exc:
         db.rollback()
+        metrics.record_background_task("certificate_render", "failed")
         fail_cert = db.query(Certificate).filter(Certificate.id == certificate_id).first()
         if fail_cert:
             fail_cert.status = CertificateStatus.FAILED.value
